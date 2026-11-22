@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#F4D9D5">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="树树工作台">
+  <link rel="manifest" href="manifest.json?v=12">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" href="icons/icon-192.png">
+  <title>树树工作台</title>
+  <link rel="stylesheet" href="css/style.css?v=12">
+</head>
+<body>
+  <div id="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="avatar" id="brandAvatar"></div>
+        <div class="brand-name">树树工作台</div>
+        <div class="brand-slogan">认真生活 · 慢慢变好 🌿</div>
+      </div>
+      <nav class="nav-list" id="navList"></nav>
+      <div class="sidebar-foot">
+        <button class="icon-btn" id="settingsBtn" title="数据设置">⚙️</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="greeting" id="greeting">早上好，树树 <small id="greetSub">新的一天，从头开始 🌿</small></div>
+        <div class="top-right">
+          <div class="sync-chip" id="syncChip" title="三端同步状态"><span class="sync-dot"></span><span class="sync-text">本地</span></div>
+          <div class="date-chip" id="dateChip"></div>
+        </div>
+      </header>
+      <div class="view-container" id="viewContainer">
+        <section class="view active" id="view-home"></section>
+        <section class="view" id="view-todo"></section>
+        <section class="view" id="view-schedule"></section>
+        <section class="view" id="view-health"></section>
+        <section class="view" id="view-english"></section>
+        <section class="view" id="view-diary"></section>
+      </div>
+    </main>
+  </div>
+
+  <div id="modalRoot"></div>
+  <div class="toast" id="toast"></div>
+
+  <!-- 登录遮罩：未登录时盖住整个应用 -->
+  <div class="login-screen" id="loginScreen">
+    <div class="login-card">
+      <div class="login-avatar"><img src="icons/avatar-tree.png" alt="树树"></div>
+      <h1>树树工作台</h1>
+      <p class="login-sub">登录后，手机 / iPad / 电脑数据自动同步 🌿</p>
+      <div class="login-tabs">
+        <button class="login-tab active" data-tab="login">登录</button>
+        <button class="login-tab" data-tab="signup">注册</button>
+      </div>
+      <form id="loginForm">
+        <input class="input" type="email" id="authEmail" placeholder="邮箱" autocomplete="username" required>
+        <input class="input" type="password" id="authPass" placeholder="密码（至少 6 位）" autocomplete="current-password" minlength="6" required>
+        <div class="login-err" id="authErr"></div>
+        <button class="btn primary" type="submit" id="authSubmit">登录并同步</button>
+      </form>
+      <p class="login-tip">同一个邮箱在三个设备登录，即可数据一致。<br>数据只存在你自己的云空间，安全私密。</p>
+    </div>
+  </div>
+
+  <script src="js/icons.js?v=12"></script>
+  <script src="js/store.js?v=12"></script>
+  <script src="js/sync.js?v=12"></script>
+  <script src="js/data.js?v=12"></script>
+  <script src="js/health-content.js?v=12"></script>
+  <script src="js/audio-map.js?v=12"></script>
+  <script src="js/english-content.js?v=12"></script>
+  <script src="js/modules/home.js?v=12"></script>
+  <script src="js/modules/todo.js?v=12"></script>
+  <script src="js/modules/schedule.js?v=12"></script>
+  <script src="js/modules/health.js?v=12"></script>
+  <script src="js/modules/english.js?v=12"></script>
+  <script src="js/modules/diary.js?v=12"></script>
+  <script src="js/app.js?v=12"></script>
+</body>
+</html>
