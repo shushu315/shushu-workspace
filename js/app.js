@@ -200,6 +200,18 @@
             <button class="btn primary sm" id="goLoginBtn">登录同步</button>
           </div>`}
       </div>
+      ${(function () {
+        const v = Store.vault && Store.vault();
+        if (!v) return '';
+        const vd = v.days || {};
+        const cnt = Object.keys(vd).length;
+        const todos = Object.values(vd).reduce((s, d) => s + ((d && d.todo) ? d.todo.length : 0), 0);
+        return `<div class="card" style="box-shadow:none;margin-top:12px">
+          <div class="card-title"><span class="dot" style="background:#F0C24B"></span>🗄️ 数据保险箱</div>
+          <p class="tiny muted">系统自动留存了一份历史数据快照（${cnt} 天记录 · ${todos} 条待办）。若数据意外丢失，可在此一键找回。</p>
+          <button class="btn ghost sm" id="restoreVaultBtn" style="margin-top:8px">从保险箱找回数据</button>
+        </div>`;
+      }).call(this)}
       <div class="card" style="box-shadow:none;margin-top:12px">
         <div class="card-title"><span class="dot"></span>经期周期</div>
         <div class="health-input-grid"><span class="tiny">上次开始</span><input class="input" type="date" id="setPeriod" value="${p.lastPeriodStart}"></div>
@@ -244,6 +256,17 @@
       if (confirm('确定清空全部数据吗？此操作不可恢复，建议先导出备份。')) {
         Store.clearAll(); App.closeModal(); App.toast('已清空'); App.refresh();
       }
+    };
+    const restoreVaultBtn = document.getElementById('restoreVaultBtn');
+    if (restoreVaultBtn) restoreVaultBtn.onclick = async () => {
+      if (!confirm('从保险箱找回数据？找回后本机数据将被保险箱快照替换。')) return;
+      if (Store.restoreVault()) {
+        App.closeModal(); App.toast('已从保险箱找回数据'); App.refresh();
+        // 若已登录，找回后立即同步到云端，其它设备可拉取
+        if (typeof Sync !== 'undefined' && Sync.isLoggedIn()) {
+          try { await Sync.push(true); } catch (e) {}
+        }
+      } else App.toast('保险箱暂无可用快照');
     };
     // 云同步管理
     if (document.getElementById('syncNowBtn')) {
@@ -307,7 +330,7 @@
     // PWA —— 应用启动时先彻底清理旧版缓存/SW，再注册带版本号的新 SW
     // 这样即使设备上残留旧 Service Worker，也能强制加载最新功能
     if ('serviceWorker' in navigator) {
-      const APP_VER = '15';
+      const APP_VER = '16';
       const bootSW = () => {
         // 清理所有旧的 Cache Storage（保留 v9）
         if (window.caches && caches.keys) {
