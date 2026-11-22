@@ -182,6 +182,11 @@
     App.modal(`
       <h3>⚙️ 数据与个人设置</h3>
       <p class="tiny muted">数据自动保留最近 2 年。登录同一账号后，三端实时自动同步：编辑后自动上传，每 12 秒自动拉取，无需手动操作。</p>
+      <div class="card" style="box-shadow:none;margin-top:12px;border:1.5px solid #F0C24B">
+        <div class="card-title"><span class="dot" style="background:#F0C24B"></span>🔍 数据丢了？去抢救中心</div>
+        <p class="tiny muted">如果数据意外被清空，可扫描本机所有残留快照或从云端找回。</p>
+        <button class="btn ghost sm" id="openRescueBtn" style="margin-top:8px">打开数据抢救中心</button>
+      </div>
       <div class="card" style="box-shadow:none;margin-top:12px">
         <div class="card-title"><span class="dot" style="background:var(--blue-2)"></span>☁️ 三端云同步（实时）</div>
         ${logged ? `
@@ -228,6 +233,7 @@
         <button class="btn primary" id="saveSettings">保存</button>
       </div>
     `);
+    document.getElementById('openRescueBtn').onclick = () => { App.closeModal(); App.rescueModal(); };
     document.getElementById('saveSettings').onclick = () => {
       Store.setProfile({
         lastPeriodStart: document.getElementById('setPeriod').value || p.lastPeriodStart,
@@ -288,6 +294,107 @@
     }
   };
 
+  /* ---------- 数据抢救中心：事故后扫描本机所有残留数据并恢复 ---------- */
+  App.rescueModal = async function () {
+    App.modal(`<h3>🔍 数据抢救中心</h3>
+      <p class="tiny muted">正在扫描本机残留数据…</p>`);
+    const snaps = Store.scanSnapshots ? Store.scanSnapshots() : [];
+    const box = document.getElementById('modalRoot').querySelector('.modal');
+    const realOnes = snaps.filter(s => s.real && s.key !== 'shushu_workspace_data_v1');
+    const current = snaps.find(s => s.key === 'shushu_workspace_data_v1');
+
+    let html = `<h3>🔍 数据抢救中心</h3>
+      <p class="tiny muted">先在<b>你平时记录数据的那台设备</b>上打开这里。系统会扫描本机所有残留数据快照。</p>
+      <div class="card" style="box-shadow:none;margin-top:10px">
+        <div class="card-title"><span class="dot"></span>当前使用中的数据</div>
+        <p class="tiny">${current ? `${current.days} 天 · ${current.todos} 条待办 · ${current.diaries} 篇日记` : '空'}</p>
+      </div>`;
+
+    if (realOnes.length) {
+      html += `<div class="card" style="box-shadow:none;margin-top:10px">
+        <div class="card-title"><span class="dot" style="background:#F0C24B"></span>可找回的快照（${realOnes.length}）</div>`;
+      realOnes.forEach((s, i) => {
+        const label = s.key.includes('vault') ? '数据保险箱' : (s.key.includes('data') ? '历史数据备份' : s.key);
+        html += `<div class="row wrap" style="justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #f2e8e4">
+          <span class="tiny"><b>${App.escape(label)}</b><br>${s.days} 天 · ${s.todos} 条待办 · ${s.diaries} 篇日记<br><span class="muted">${App.escape(s.range)}</span></span>
+          <button class="btn primary sm" data-snap="${i}">恢复这份</button>
+        </div>`;
+      });
+      html += `</div>`;
+    } else {
+      html += `<div class="card" style="box-shadow:none;margin-top:10px">
+        <p class="tiny muted">本机没有找到其它含数据的快照。</p></div>`;
+    }
+
+    html += `<div class="card" style="box-shadow:none;margin-top:10px">
+      <div class="card-title"><span class="dot" style="background:var(--blue-2)"></span>云端数据</div>
+      <p class="tiny muted" id="cloudStat">${(typeof Sync !== 'undefined' && Sync.isLoggedIn()) ? '正在检查云端…' : '未登录，无法检查云端'}</p>
+      ${(typeof Sync !== 'undefined' && Sync.isLoggedIn()) ? '<button class="btn ghost sm" id="pullCloudBtn" style="display:none">用云端数据覆盖本机</button>' : ''}
+    </div>
+    <div class="row wrap" style="margin-top:14px;justify-content:space-between">
+      <button class="btn ghost sm" id="exportNowBtn">先导出当前数据</button>
+      <button class="btn ghost" onclick="App.closeModal()">关闭</button>
+    </div>`;
+    box.innerHTML = html;
+
+    // 绑定快照恢复
+    box.querySelectorAll('[data-snap]').forEach(btn => {
+      btn.onclick = () => {
+        const s = realOnes[Number(btn.dataset.snap)];
+        if (!confirm(`恢复「${s.key}」这份数据？\n当前数据会被存入保险箱备份。`)) return;
+        if (Store.restoreSnapshot(s.key)) {
+          App.closeModal(); App.toast('数据已恢复 🌿'); App.refresh();
+          if (typeof Sync !== 'undefined' && Sync.isLoggedIn()) {
+            App.modal(`<p class="tiny">数据已恢复到本机。是否立即同步到云端？</p>
+              <div class="row wrap" style="margin-top:10px;justify-content:flex-end">
+                <button class="btn ghost sm" onclick="App.closeModal()">稍后</button>
+                <button class="btn primary sm" id="doPushAfterRescue">立即同步</button>
+              </div>`);
+            document.getElementById('doPushAfterRescue').onclick = async () => {
+              await Sync.push(true); App.closeModal(); App.toast('已同步到云端 ☁️');
+            };
+          }
+        } else App.toast('恢复失败');
+      };
+    });
+    // 导出当前
+    const ex = document.getElementById('exportNowBtn');
+    if (ex) ex.onclick = () => {
+      const blob = new Blob([Store.exportJSON()], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `树树工作台备份-${Store.todayISO()}.json`;
+      a.click();
+      App.toast('已导出');
+    };
+    // 检查云端
+    if (typeof Sync !== 'undefined' && Sync.isLoggedIn()) {
+      try {
+        const c = await Sync.inspectCloud();
+        const stat = document.getElementById('cloudStat');
+        const pullBtn = document.getElementById('pullCloudBtn');
+        if (!stat) return;
+        if (c.ok && !c.empty && c.real) {
+          stat.innerHTML = `<b style="color:var(--green,#4a9)">云端有数据：</b>${c.days} 天 · ${c.todos} 条待办`;
+          if (pullBtn) {
+            pullBtn.style.display = 'inline-block';
+            pullBtn.onclick = async () => {
+              if (!confirm('用云端数据覆盖本机？当前数据会先存入保险箱。')) return;
+              const r = await Sync.pull({ force: true, preferRemote: true });
+              App.closeModal(); App.toast(r.ok ? '已用云端数据恢复 ☁️' : '拉取失败'); App.refresh();
+            };
+          }
+        } else if (c.ok && c.empty) {
+          stat.textContent = '云端暂无数据';
+        } else if (c.ok && !c.empty && !c.real) {
+          stat.textContent = '云端目前是空数据（可能已被覆盖）';
+        } else {
+          stat.textContent = '云端检查失败：' + ((c.error && c.error.message) || '网络异常');
+        }
+      } catch (e) {}
+    }
+  };
+
   /* 手机软键盘弹出时不遮挡输入框：滚动到可视区中央 */
   function initKeyboardFix() {
     // 聚焦输入框/文本域时，延迟滚动确保键盘已弹出
@@ -331,24 +438,18 @@
   function checkDataRescue() {
     try {
       const empty = !Store.hasContent(Store.load());
-      const v = Store.vault && Store.vault();
-      const vaultOK = v && Store.hasContent(v);
-      if (empty && vaultOK) {
+      const snaps = Store.scanSnapshots ? Store.scanSnapshots().filter(s => s.real && s.key !== 'shushu_workspace_data_v1') : [];
+      if (empty && snaps.length) {
         setTimeout(() => {
           App.modal(`
             <h3>🗄️ 发现可找回的数据</h3>
-            <p class="tiny muted">检测到本机当前没有记录，但保险箱里保存着之前的数据（${Object.keys(v.days || {}).length} 天）。要一键找回吗？</p>
+            <p class="tiny muted">检测到本机当前没有记录，但找到了 ${snaps.length} 份之前的数据快照。要打开抢救中心找回吗？</p>
             <div class="row wrap" style="margin-top:14px;justify-content:flex-end">
               <button class="btn ghost" id="rescueLater">暂时不要</button>
-              <button class="btn primary" id="rescueNow">一键找回</button>
+              <button class="btn primary" id="rescueNow">去找回</button>
             </div>`);
             document.getElementById('rescueLater').onclick = () => App.closeModal();
-            document.getElementById('rescueNow').onclick = async () => {
-              const ok = (typeof Sync !== 'undefined' && Sync.rescueVault) ? await Sync.rescueVault() : Store.restoreVault();
-              App.closeModal();
-              if (ok) { App.toast('数据已找回并同步 🌿'); App.refresh(); }
-              else App.toast('找回失败');
-            };
+            document.getElementById('rescueNow').onclick = () => App.rescueModal();
           }, 1000);
         }
     } catch (e) {}
@@ -386,7 +487,7 @@
     // PWA —— 应用启动时先彻底清理旧版缓存/SW，再注册带版本号的新 SW
     // 这样即使设备上残留旧 Service Worker，也能强制加载最新功能
     if ('serviceWorker' in navigator) {
-      const APP_VER = '18';
+      const APP_VER = '19';
       const bootSW = () => {
         // 清理所有旧的 Cache Storage（保留 v9）
         if (window.caches && caches.keys) {

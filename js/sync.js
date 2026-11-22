@@ -284,6 +284,28 @@
     return { ok: true };
   };
 
+  /** 只读取云端状态，不覆盖本地（供抢救中心判断云端是否还有数据） */
+  S.inspectCloud = async function () {
+    if (!S.isLoggedIn()) return { ok: false, reason: '未登录' };
+    try {
+      await ensureToken();
+      const rows = await fetchJSON(URL + '/rest/v1/workspace_data?select=data,updated_at&user_id=eq.' + encodeURIComponent(auth.userId), { headers: headers() });
+      if (!Array.isArray(rows) || rows.length === 0) return { ok: true, empty: true };
+      const d = rows[0].data;
+      const days = (d && d.days) || {};
+      let todos = 0;
+      Object.keys(days).forEach(k => { todos += ((days[k] || {}).todo || []).length; });
+      return {
+        ok: true, empty: false,
+        real: hasRealData(d),
+        days: Object.keys(days).length,
+        todos,
+        updatedAt: d && d.__updatedAt || 0,
+        rowUpdatedAt: rows[0].updated_at
+      };
+    } catch (e) { return { ok: false, error: e }; }
+  };
+
   document.addEventListener('visibilitychange', () => {
     if (!S.isLoggedIn()) return;
     if (document.hidden) {

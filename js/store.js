@@ -208,5 +208,60 @@
     save();
   }
 
-  global.Store = { load, save, day, updateDay, schedule, setSchedule, setProfile, english, saveEnglish, addStudySeconds, all, exportJSON, importJSON, clearAll, vault, restoreVault, hasContent, todayISO, KEEP_DAYS };
+  /**
+   * 数据抢救：扫描本机 localStorage 里所有"像工作台数据"的 JSON 快照，
+   * 统计每份的真实内容量，供事故后判断哪一份还能救回。
+   */
+  function scanSnapshots() {
+    const out = [];
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        const raw = localStorage.getItem(k);
+        if (!raw || raw.length < 20) continue;
+        let v;
+        try { v = JSON.parse(raw); } catch (e) { continue; }
+        if (!v || typeof v !== 'object' || Array.isArray(v)) continue;
+        if (!('days' in v) && !('english' in v) && !('schedule' in v)) continue;
+        const days = v.days || {};
+        const dk = Object.keys(days);
+        let todos = 0, diaries = 0;
+        dk.forEach(d => {
+          const day = days[d] || {};
+          todos += (day.todo || []).length;
+          if (day.diary && typeof day.diary === 'object' && Object.keys(day.diary).length) diaries++;
+        });
+        const sorted = dk.slice().sort();
+        out.push({
+          key: k,
+          days: dk.length,
+          todos,
+          diaries,
+          range: sorted.length ? (sorted[0] + ' ~ ' + sorted[sorted.length - 1]) : '',
+          real: hasContent(v),
+          size: raw.length,
+          updatedAt: v.__updatedAt || 0
+        });
+      }
+    } catch (e) {}
+    out.sort((a, b) => (b.todos + b.diaries * 2) - (a.todos + a.diaries * 2));
+    return out;
+  }
+  /** 从指定 key 的快照恢复到当前数据（恢复前先把当前有内容的数据存入保险箱） */
+  function restoreSnapshot(key) {
+    const raw = localStorage.getItem(key);
+    if (!raw) return false;
+    let parsed;
+    try { parsed = JSON.parse(raw); } catch (e) { return false; }
+    if (hasContent(cache) && !hasContent(parsed)) {
+      try { localStorage.setItem(VAULT_KEY, JSON.stringify(cache)); } catch (e) {}
+    }
+    cache = parsed;
+    global.__SYNC_SUPPRESS__ = true;
+    save(false);
+    global.__SYNC_SUPPRESS__ = false;
+    return true;
+  }
+
+  global.Store = { load, save, day, updateDay, schedule, setSchedule, setProfile, english, saveEnglish, addStudySeconds, all, exportJSON, importJSON, clearAll, vault, restoreVault, hasContent, scanSnapshots, restoreSnapshot, todayISO, KEEP_DAYS };
 })(window);
