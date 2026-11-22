@@ -17,6 +17,8 @@
   let syncing = false;
   let pushTimer = null;
   let listeners = [];
+  let booting = true; // 启动宽限期：首次 Sync.start() 完成前，抑制自动推送，防止空壳覆盖云端
+  setTimeout(() => { booting = false; }, 8000); // 兜底：8秒后强制解除，避免卡死
 
   const S = {};
   S.URL = URL;
@@ -136,10 +138,12 @@
   /** 标记本地有变更，防抖推送 */
   S.markDirty = function () {
     if (!S.isLoggedIn()) return;
+    // 启动初始化阶段不排队推送，避免空壳覆盖云端
+    if (booting) { return; }
     meta.dirty = true; saveMeta();
     notify('pending', '待同步');
     clearTimeout(pushTimer);
-    pushTimer = setTimeout(() => S.push(true), 1200);
+    pushTimer = setTimeout(() => S.push(true), 1500);
   };
 
   /** 从云端拉取数据 */
@@ -163,6 +167,7 @@
       const local = Store.load();
       const localTs = local.__updatedAt || 0;
       const localHasData = hasRealData(local);
+      const remoteHasData = hasRealData(remote);
 
       // 强制下载：云端覆盖本地（用户手动确认后）
       if (opts.preferRemote) {
@@ -173,8 +178,9 @@
         return { ok: true, pulled: true };
       }
 
-      // 本地为空壳（新设备首次登录）→ 无条件拉取云端
-      if (!localHasData && remoteTs > 0) {
+      // 【关键保护】本地是空壳但云端有数据 → 一律拉取云端，绝不覆盖
+      // 覆盖场景：新设备首次登录 / localTs 因启动渲染被刷新，都必须以云端为准
+      if (!localHasData && remoteHasData) {
         Store.importJSON(remote);
         meta.dirty = false; meta.lastPullAt = Date.now(); saveMeta();
         notify('online', '已拉取云端数据');
@@ -182,12 +188,18 @@
         return { ok: true, pulled: true };
       }
 
-      // 以时间戳为准：本地真实更新才推送
-      if (localTs > remoteTs) {
+      // 本地有真实数据且确实比云端新 → 才推送（避免空壳覆盖）
+      if (localHasData && localTs > remoteTs) {
         notify('syncing', '正在上传本地变更');
         await doPush();
         notify('online', '已同步');
         return { ok: true, pushed: true };
+      }
+      // 本地无真实数据但云端也无真实数据、只是本地时间新 → 不推送，保持云端
+      if (!localHasData && !remoteHasData) {
+        meta.dirty = false; meta.lastPullAt = Date.now(); saveMeta();
+        notify('online', '已是最新');
+        return { ok: true };
       }
       if (remoteTs > localTs) {
         Store.importJSON(remote);
@@ -205,9 +217,16 @@
     } finally { syncing = false; }
   };
 
-  async function doPush() {
+  async function doPush(opts) {
+    opts = opts || {};
     await ensureToken();
     const data = Store.load();
+    // 最终兜底：本地是空壳时绝不自动推送，防止覆盖云端真实数据
+    // 手动强制上传（opts.allowEmpty）时放行
+    if (!opts.allowEmpty && !hasRealData(data)) {
+      notify('online', '本地无数据，跳过上传');
+      return;
+    }
     data.__updatedAt = Date.now();
     const payload = { user_id: auth.userId, data: data, updated_at: new Date().toISOString() };
     // upsert：冲突时按主键更新
@@ -220,13 +239,13 @@
   }
 
   /** 推送本地数据到云端 */
-  S.push = async function (silent) {
+  S.push = async function (silent, opts) {
     if (!S.isLoggedIn()) return { ok: false, reason: '未登录' };
     if (syncing) return { ok: false, reason: '同步中' };
     syncing = true;
     if (!silent) notify('syncing', '上传中');
     try {
-      await doPush();
+      await doPush(opts);
       notify('online', '已同步 ☁️');
       return { ok: true };
     } catch (e) {
@@ -244,10 +263,10 @@
     if (!S.isLoggedIn()) { notify('offline', '未登录'); return; }
     const r = await S.pull({ force: true });
     if (r.ok && r.empty) {
-      // 云端为空：把本地数据作为初始版本上传
-      const hasLocal = Object.keys(Store.load().days || {}).length > 0 || Store.load().english?.currentDay > 1;
-      if (hasLocal) await S.push(true);
+      // 云端为空：仅当本地有真实数据时才作为初始版本上传
+      if (hasRealData(Store.load())) await S.push(true);
     }
+    booting = false; // 首次同步完成，解除推送抑制
   };
 
   // 页面切到后台/关闭前推送，回到前台拉取

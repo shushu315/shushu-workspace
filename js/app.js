@@ -252,7 +252,7 @@
         App.toast(r.ok ? '同步完成 ☁️' : ('同步失败：' + (r.error?.message || '请检查网络')));
       };
       document.getElementById('pushNowBtn').onclick = async () => {
-        App.toast('正在上传…'); const r = await Sync.push();
+        App.toast('正在上传…'); const r = await Sync.push(false, { allowEmpty: true });
         App.toast(r.ok ? '已上传到云端 ☁️' : '上传失败，请检查网络或云端配置');
       };
       document.getElementById('pullNowBtn').onclick = async () => {
@@ -307,7 +307,7 @@
     // PWA —— 应用启动时先彻底清理旧版缓存/SW，再注册带版本号的新 SW
     // 这样即使设备上残留旧 Service Worker，也能强制加载最新功能
     if ('serviceWorker' in navigator) {
-      const APP_VER = '13';
+      const APP_VER = '14';
       const bootSW = () => {
         // 清理所有旧的 Cache Storage（保留 v9）
         if (window.caches && caches.keys) {
