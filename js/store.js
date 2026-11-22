@@ -51,11 +51,16 @@
         currentDay: 1,
         completed: [],
         quizResults: [],
-        wordBook: [],
+        wordBook: [],       // 累积单词本（课程词 + 点词卡加入的词），按 added 日期累积，不覆盖
         grammarNotes: [],
         reviews: [],
-        tests: []
+        tests: [],          // 历史试卷成绩
+        papers: [],         // 试卷夹：存档每套完整试卷（题目+选项+答案+解析）
+        notes: [],          // 每日学习资料库：每课的知识点沉淀
+        studyLog: {}        // { 'YYYY-MM-DD': 累计学习秒数 } 真实计时，无上限
       },
+      summaries: [],        // 周/月总结存档
+      notifications: [],    // 总结推送记录
       settings: { lastCleanup: todayISO() }
     };
   }
@@ -78,6 +83,14 @@
     if (typeof cache.profile !== 'object') cache.profile = d.profile;
     if (!cache.profile.body) cache.profile.body = d.profile.body;
     if (typeof cache.english !== 'object') cache.english = d.english;
+    // 英语新字段兜底（老数据升级）
+    ['papers', 'notes', 'wordBook', 'grammarNotes', 'reviews', 'tests', 'completed', 'quizResults'].forEach(k => {
+      if (!Array.isArray(cache.english[k])) cache.english[k] = [];
+    });
+    if (typeof cache.english.studyLog !== 'object' || Array.isArray(cache.english.studyLog)) cache.english.studyLog = {};
+    if (typeof cache.english.currentDay !== 'number') cache.english.currentDay = 1;
+    if (!Array.isArray(cache.summaries)) cache.summaries = [];
+    if (!Array.isArray(cache.notifications)) cache.notifications = [];
     prune();
     save();
     return cache;
@@ -138,6 +151,16 @@
   function setProfile(patch) { Object.assign(load().profile, patch); save(); }
   function english() { return load().english; }
   function saveEnglish() { save(); }
+  /** 累计真实英语学习秒数（无上限），并同步到当天 englishMin（向上取整到分钟） */
+  function addStudySeconds(sec) {
+    const d = load();
+    const day = todayISO();
+    d.english.studyLog[day] = (d.english.studyLog[day] || 0) + sec;
+    // 首页看板用的分钟数由真实秒数换算，保留精确值到 studyLog，day.englishMin 同步取整
+    const dayData = d.days[day] || (day(day, true));
+    dayData.englishMin = Math.round(d.english.studyLog[day] / 60);
+    save();
+  }
   function all() { return load(); }
 
   function exportJSON() { return JSON.stringify(load(), null, 2); }
@@ -187,5 +210,5 @@
     save();
   }
 
-  global.Store = { load, save, day, updateDay, schedule, setSchedule, setProfile, english, saveEnglish, all, exportJSON, importJSON, clearAll, vault, restoreVault, todayISO, KEEP_DAYS };
+  global.Store = { load, save, day, updateDay, schedule, setSchedule, setProfile, english, saveEnglish, addStudySeconds, all, exportJSON, importJSON, clearAll, vault, restoreVault, todayISO, KEEP_DAYS };
 })(window);

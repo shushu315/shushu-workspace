@@ -35,7 +35,7 @@
         <span class="sub">${d} · 照顾好自己，才能照顾好事业</span>
       </div>
 
-      <div class="grid grid-4">
+      <div class="grid grid-3">
         <div class="card big-metric">
           <div class="num">${pi.daysUntil}</div>
           <div class="unit">天后进入经期</div>
@@ -55,6 +55,16 @@
           <div class="num" style="color:#A88437">${day.exerciseCheck ? '✓' : '—'}</div>
           <div class="unit">今日运动打卡</div>
           <div class="tiny muted" style="margin-top:6px">20 分钟轻量化抗阻</div>
+        </div>
+        <div class="card big-metric" data-go="body" role="button" tabindex="0" style="background:linear-gradient(160deg,#F6E4D9,#FBF1EA)">
+          <div class="num" style="color:#B4835E">${body.weight || '—'}<small style="font-size:14px">${body.weight ? ' kg' : ''}</small></div>
+          <div class="unit">当前体重</div>
+          <div class="tiny muted" style="margin-top:6px">${body.weight ? '点卡片更新数据' : '点卡片填写体重'}</div>
+        </div>
+        <div class="card big-metric" data-go="supplement" role="button" tabindex="0" style="background:linear-gradient(160deg,#F3E6F0,#FBF0F8)">
+          <div class="num" style="color:#9A6E8E">${sup.length}<small style="font-size:14px"> 种</small></div>
+          <div class="unit">今日已补剂</div>
+          <div class="tiny muted" style="margin-top:6px">共 ${Data.SUPPLEMENTS.length} 种 · 点卡片记录</div>
         </div>
       </div>
 
@@ -146,7 +156,7 @@
       </div>
 
       <!-- 身体数据卡 -->
-      <div class="card" style="margin-top:16px">
+      <div class="card" id="bodyCard" style="margin-top:16px">
         <div class="card-title"><span class="dot" style="background:var(--pink-ink)"></span>身体数据 <span class="tiny muted">用于计算基础代谢，随时可更新</span></div>
         <div class="body-grid">
           ${[['height','身高 cm'],['weight','体重 kg'],['age','年龄'],['arm','手围 cm'],['waist','腰围 cm'],['hip','臀围 cm'],['thigh','腿围 cm']].map(([k,l]) => `
@@ -182,7 +192,7 @@
       </div>
 
       <!-- 补剂 + 睡眠 -->
-      <div class="card" style="margin-top:16px">
+      <div class="card" id="suppCard" style="margin-top:16px">
         <div class="card-title"><span class="dot" style="background:var(--blue-2)"></span>今日补给 · 一键点亮吃过的补剂</div>
         <div class="sup-grid">
           ${Data.SUPPLEMENTS.map((s, i) => `
@@ -205,6 +215,17 @@
   };
 
   function bindEvents(d, day) {
+    // 六宫格卡片点击 → 滚动到对应编辑区
+    const goCard = (from, to) => {
+      const src = document.querySelector(`#view-health [data-go="${from}"]`);
+      if (!src) return;
+      src.onclick = () => {
+        const target = document.getElementById(to);
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      };
+    };
+    goCard('body', 'bodyCard');
+    goCard('supplement', 'suppCard');
     // 运动
     document.getElementById('saveSport').onclick = () => {
       Store.updateDay(d, {

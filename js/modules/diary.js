@@ -45,7 +45,9 @@
       <div class="diary-layout">
         <div>
           <div class="card diary-sidelist" style="padding:10px">
-            <div class="card-title" style="padding:6px 6px 10px"><span class="dot"></span>时光抽屉</div>
+            <div class="card-title" style="padding:6px 6px 10px"><span class="dot"></span>时光抽屉 <span class="tiny muted" style="font-weight:400">· 共 ${entries().length} 篇 · 点击可往前翻看</span></div>
+            <input class="input" id="diarySearch" placeholder="按日期查找，如 2026-11" style="margin-bottom:8px;font-size:12px;padding:7px 10px">
+            <div id="diaryListWrap">
             ${list.map(dt => {
               const d = getDiary(dt);
               const preview = (d.text || '').replace(/\n/g, ' ').slice(0, 18) || (d.mood ? d.mood : '空白的一页');
@@ -54,6 +56,7 @@
                 <div class="p">${App.escape(preview)}</div>
               </div>`;
             }).join('')}
+            </div>
           </div>
           <button class="btn ghost sm" id="newEntry" style="width:100%;margin-top:10px">✏️ 写一篇今天</button>
         </div>
@@ -76,6 +79,13 @@
     `;
 
     document.querySelectorAll('.diary-entry-mini').forEach(el => el.onclick = () => { selected = el.dataset.date; mod.render(); });
+    const dSearch = document.getElementById('diarySearch');
+    if (dSearch) dSearch.oninput = () => {
+      const kw = dSearch.value.trim();
+      document.querySelectorAll('.diary-entry-mini').forEach(el => {
+        el.style.display = (!kw || el.dataset.date.includes(kw)) ? '' : 'none';
+      });
+    };
     document.getElementById('newEntry').onclick = () => { selected = today; mod.render(); document.getElementById('diaryText').focus(); };
     document.querySelectorAll('[data-mood]').forEach(el => el.onclick = () => {
       const v = getDiary(selected).mood === el.dataset.mood ? '' : el.dataset.mood;

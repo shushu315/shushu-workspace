@@ -630,3 +630,78 @@ button { cursor: pointer; border: none; background: none; padding: 0; }
 .fl-done { padding: 40px 24px; text-align: center; }
 .fl-done-emoji { font-size: 64px; }
 .fl-done h3 { margin: 12px 0 6px; font-size: 22px; }
+
+/* ============ 即点单词卡（Dictionary / WordCard） ============ */
+.dict-word { cursor: pointer; border-radius: 4px; padding: 0 1px; transition: background .15s; }
+.dict-word:hover { background: #FFE0EC; color: var(--pink-600); box-shadow: 0 0 0 2px #FFE0EC; }
+.article-en .dict-word, .word-en.dict-word, .quiz-opt .dict-word { cursor: pointer; }
+
+.wc-mask { position: fixed; inset: 0; z-index: 5000; background: rgba(60,40,50,.42); display: flex; align-items: center; justify-content: center; padding: 18px; animation: wcFade .18s ease; }
+@keyframes wcFade { from { opacity: 0; } to { opacity: 1; } }
+.wc-card { position: relative; width: min(440px, 100%); max-height: 86vh; overflow-y: auto; background: linear-gradient(165deg, #fff, #FFF6F9); border-radius: 22px; padding: 24px 22px 20px; box-shadow: 0 20px 60px rgba(120,70,90,.28); border: 1px solid var(--pink-100); }
+.wc-close { position: absolute; top: 12px; right: 14px; border: 0; background: #F6E8EE; color: var(--pink-ink); width: 30px; height: 30px; border-radius: 50%; font-size: 15px; cursor: pointer; }
+.wc-head { border-bottom: 1px dashed var(--pink-200); padding-bottom: 12px; }
+.wc-word { font-size: 30px; font-weight: 900; color: var(--pink-600); letter-spacing: .5px; }
+.wc-ph { font-size: 15px; color: #9A6E8E; margin-top: 4px; font-family: "Times New Roman", serif; }
+.wc-pos { display: inline-block; margin-top: 8px; font-size: 12px; background: var(--lavender); color: var(--lavender-ink); padding: 2px 10px; border-radius: 20px; }
+.wc-meaning { font-size: 17px; font-weight: 700; color: var(--ink-1); margin-top: 14px; line-height: 1.6; }
+.wc-sec { margin-top: 14px; }
+.wc-sec-t { font-size: 12px; font-weight: 800; color: var(--pink-ink); margin-bottom: 6px; }
+.wc-line { font-size: 13px; color: var(--ink-2); padding: 3px 0; line-height: 1.5; }
+.wc-ex { font-size: 13px; color: var(--ink-2); line-height: 1.7; padding: 6px 0; }
+.wc-play { border: 0; background: #F6E8EE; color: var(--pink-ink); border-radius: 8px; padding: 2px 8px; cursor: pointer; font-size: 13px; margin-left: 4px; }
+.wc-play.big { font-size: 20px; padding: 4px 10px; vertical-align: middle; }
+#wcAddBtn.added, .btn:disabled { opacity: .6; }
+
+/* ============ 英语数据看板 ============ */
+.dash-metric { text-align: center; padding: 18px 12px; }
+.dm-num { font-size: 34px; font-weight: 900; color: var(--pink-600); line-height: 1.1; }
+.dm-num small { font-size: 15px; font-weight: 700; }
+.dm-lbl { font-size: 13px; font-weight: 700; color: var(--ink-1); margin-top: 6px; }
+
+/* ============ 全选择题：选项字母 + 点击词不选中 ============ */
+.qrow { display: flex; gap: 8px; align-items: flex-start; }
+.chip.mini { font-size: 10px; padding: 2px 8px; white-space: nowrap; }
+.opt-key { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; background: #F6E8EE; color: var(--pink-ink); font-weight: 800; font-size: 12px; margin-right: 8px; flex: none; }
+.opt-txt { line-height: 1.5; }
+
+/* ============ 百词斩式复习 ============ */
+.bcz-card { background: linear-gradient(165deg, #fff, #FFF3F7); border: 1px solid var(--pink-100); border-radius: 20px; padding: 28px 20px 22px; box-shadow: 0 10px 30px rgba(200,150,170,.12); }
+.bcz-word { font-size: 38px; font-weight: 900; color: var(--pink-600); text-align: center; letter-spacing: 1px; }
+.bcz-options { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 26px; }
+.bcz-opt { padding: 14px 10px; border-radius: 14px; border: 2px solid var(--pink-100); background: #fff; font-size: 15px; cursor: pointer; transition: all .15s; color: var(--ink-1); }
+.bcz-opt:hover { border-color: var(--pink-300); background: var(--pink-50); }
+.bcz-opt.right { border-color: var(--green-ink); background: var(--green); color: #2F5C2C; }
+.bcz-opt.wrong { border-color: #D96A72; background: #FCE4E8; color: #A84048; }
+.bcz-feedback { text-align: center; font-size: 14px; font-weight: 700; margin-top: 14px; min-height: 18px; }
+
+/* ============ 累积单词本 ============ */
+.wb-group { margin-bottom: 16px; }
+.wb-date { font-size: 12px; font-weight: 800; color: var(--pink-ink); background: var(--pink-50); padding: 6px 10px; border-radius: 10px; margin-bottom: 6px; }
+.wb-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 9px 6px; border-bottom: 1px dashed var(--line); font-size: 13px; }
+.wb-row .word-en { min-width: 92px; }
+.wb-src { font-size: 10px; color: var(--lavender-ink); background: var(--lavender); padding: 1px 8px; border-radius: 12px; }
+
+/* ============ 语法练习 / 资料库 / 试卷夹 ============ */
+.grammar-item { padding: 12px 0; border-bottom: 1px dashed var(--line); }
+.gq-why .analysis { margin-top: 6px; }
+.lib-item { padding: 10px 0; border-bottom: 1px dashed var(--line); }
+.paper-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px; }
+.paper-item { border: 2px solid var(--pink-100); background: linear-gradient(160deg,#fff,#FFF6F9); border-radius: 14px; padding: 14px 8px; cursor: pointer; text-align: center; transition: all .15s; }
+.paper-item:hover { border-color: var(--pink-300); transform: translateY(-2px); }
+.pi-kind { font-size: 12px; font-weight: 700; color: var(--lavender-ink); }
+.pi-score { font-size: 24px; font-weight: 900; color: var(--pink-600); margin: 6px 0; }
+
+/* ============ 周/月总结 ============ */
+.summary-jump { cursor: pointer; transition: all .15s; }
+.summary-jump:hover { border-color: var(--pink-300); }
+.summary-empty { opacity: .75; }
+.summary-list { margin: 6px 0 0; padding-left: 18px; }
+.summary-list li { font-size: 13px; color: var(--ink-2); line-height: 1.7; }
+.summary-card { background: #fff; border-radius: 14px; padding: 4px 2px; }
+
+/* ============ 健康六宫格在窄屏两列 ============ */
+@media (max-width: 560px) {
+  .grid-3 { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .bcz-options { grid-template-columns: 1fr; }
+}

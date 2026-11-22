@@ -181,18 +181,17 @@
     const logged = (typeof Sync !== 'undefined') && Sync.isLoggedIn();
     App.modal(`
       <h3>⚙️ 数据与个人设置</h3>
-      <p class="tiny muted">数据自动保留最近 2 年，登录同一账号可在手机 / iPad / 电脑间同步。</p>
+      <p class="tiny muted">数据自动保留最近 2 年。登录同一账号后，三端实时自动同步：编辑后自动上传，每 12 秒自动拉取，无需手动操作。</p>
       <div class="card" style="box-shadow:none;margin-top:12px">
-        <div class="card-title"><span class="dot" style="background:var(--blue-2)"></span>☁️ 三端云同步</div>
+        <div class="card-title"><span class="dot" style="background:var(--blue-2)"></span>☁️ 三端云同步（实时）</div>
         ${logged ? `
           <div class="row" style="justify-content:space-between">
             <span class="tiny muted">当前账号：${App.escape(Sync.email())}</span>
-            <span class="chip ok">已登录</span>
+            <span class="chip ok">已登录 · 自动同步中</span>
           </div>
+          <div class="tiny muted" style="margin-top:8px">✅ 任何改动会自动上传；其它设备每 12 秒自动获取最新数据。下面按钮仅用于特殊情况下手动处理。</div>
           <div class="row wrap" style="margin-top:10px">
-            <button class="btn ghost sm" id="syncNowBtn">立即同步</button>
-            <button class="btn ghost sm" id="pushNowBtn">上传本机</button>
-            <button class="btn ghost sm" id="pullNowBtn">下载云端</button>
+            <button class="btn ghost sm" id="syncNowBtn">手动刷新</button>
             <button class="btn sm" style="background:#F8D4D2;margin-left:auto" id="logoutBtn">退出登录</button>
           </div>`
         : `<div class="row" style="justify-content:space-between">
@@ -271,19 +270,9 @@
     // 云同步管理
     if (document.getElementById('syncNowBtn')) {
       document.getElementById('syncNowBtn').onclick = async () => {
-        App.toast('正在同步…'); const r = await Sync.pull({ force: true });
+        App.toast('正在同步…');
+        const r = await Sync.pull({ force: true });
         App.toast(r.ok ? '同步完成 ☁️' : ('同步失败：' + (r.error?.message || '请检查网络')));
-      };
-      document.getElementById('pushNowBtn').onclick = async () => {
-        App.toast('正在上传…'); const r = await Sync.push(false, { allowEmpty: true });
-        App.toast(r.ok ? '已上传到云端 ☁️' : '上传失败，请检查网络或云端配置');
-      };
-      document.getElementById('pullNowBtn').onclick = async () => {
-        if (!confirm('下载云端数据会覆盖本机当前数据，确定继续吗？')) return;
-        App.toast('正在下载…');
-        // 强制拉取：临时清掉 dirty 标记，允许云端覆盖
-        const r = await Sync.pull({ force: true, preferRemote: true });
-        App.toast(r.ok ? '已下载云端数据 ☁️' : '下载失败，请检查网络');
       };
       document.getElementById('logoutBtn').onclick = () => {
         if (!confirm('退出后本机数据仍保留，但不再同步。确定退出吗？')) return;
@@ -299,8 +288,48 @@
     }
   };
 
+  /* 手机软键盘弹出时不遮挡输入框：滚动到可视区中央 */
+  function initKeyboardFix() {
+    // 聚焦输入框/文本域时，延迟滚动确保键盘已弹出
+    document.addEventListener('focusin', (e) => {
+      const el = e.target;
+      if (!el || !/^(INPUT|TEXTAREA)$/.test(el.tagName)) return;
+      // 给键盘弹出留出时间
+      setTimeout(() => {
+        try {
+          const box = el.getBoundingClientRect();
+          const vv = window.visualViewport;
+          const viewH = vv ? vv.height : window.innerHeight;
+          // 若输入框底部超出可视区，滚动使其居中偏上
+          if (box.bottom > viewH - 20) {
+            const targetTop = Math.max(0, window.scrollY + box.top - viewH * 0.42);
+            window.scrollTo({ top: targetTop, behavior: 'smooth' });
+            // viewContainer 是可滚动容器，也处理它
+            const vc = document.getElementById('viewContainer');
+            if (vc) {
+              const vcBox = vc.getBoundingClientRect();
+              if (box.bottom > vcBox.bottom - 20) {
+                vc.scrollTo({ top: vc.scrollTop + (box.bottom - vcBox.bottom) + 80, behavior: 'smooth' });
+              }
+            }
+          }
+        } catch (err) {}
+      }, 260);
+    });
+    // visualViewport 变化时再兜底一次
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', () => {
+        const ae = document.activeElement;
+        if (ae && /^(INPUT|TEXTAREA)$/.test(ae.tagName)) {
+          setTimeout(() => ae.scrollIntoView({ block: 'center', behavior: 'smooth' }), 60);
+        }
+      });
+    }
+  }
+
   function init() {
     Object.assign(MODULES, global.__MODULES__ || {});
+    initKeyboardFix();
     // 头像（用户提供的卡通小树，已修边高清处理）
     document.getElementById('brandAvatar').innerHTML = '<img src="icons/avatar-tree.png" alt="树树">';
     // 导航（左侧竖排，带分组）
@@ -330,7 +359,7 @@
     // PWA —— 应用启动时先彻底清理旧版缓存/SW，再注册带版本号的新 SW
     // 这样即使设备上残留旧 Service Worker，也能强制加载最新功能
     if ('serviceWorker' in navigator) {
-      const APP_VER = '16';
+      const APP_VER = '17';
       const bootSW = () => {
         // 清理所有旧的 Cache Storage（保留 v9）
         if (window.caches && caches.keys) {
@@ -396,6 +425,10 @@
 
     // 三端同步
     App.initSyncUI();
+    // 单词卡全局点击委托
+    if (global.WordCard && WordCard.init) WordCard.init();
+    // 智能总结：请求通知权限 + 定时检查（周六/月末 21:00 推送）
+    if (global.Summary && Summary.init) Summary.init();
   }
 
   document.addEventListener('DOMContentLoaded', init);

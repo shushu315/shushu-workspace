@@ -18,7 +18,7 @@
   let pushTimer = null;
   let listeners = [];
   let booting = true; // 启动宽限期：首次 Sync.start() 完成前，抑制自动推送，防止空壳覆盖云端
-  setTimeout(() => { booting = false; }, 8000); // 兜底：8秒后强制解除，避免卡死
+  setTimeout(() => { booting = false; }, 3000); // 兜底：3秒后强制解除，尽量不影响实时性
 
   const S = {};
   S.URL = URL;
@@ -143,7 +143,8 @@
     meta.dirty = true; saveMeta();
     notify('pending', '待同步');
     clearTimeout(pushTimer);
-    pushTimer = setTimeout(() => S.push(true), 1500);
+    // 实时同步：编辑后 700ms 自动上传，无需手动操作
+    pushTimer = setTimeout(() => S.push(true), 700);
   };
 
   /** 从云端拉取数据 */
@@ -297,6 +298,10 @@
       S.pull();
     }
   });
+  // 实时同步：前台每 12 秒自动拉取一次云端，任何设备的改动都会自动同步过来
+  setInterval(() => {
+    if (S.isLoggedIn() && !document.hidden && !syncing) S.pull();
+  }, 12000);
   window.addEventListener('beforeunload', () => {
     if (S.isLoggedIn() && meta.dirty) {
       // 尽力推送（不保证完成）
