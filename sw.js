@@ -1,6 +1,6 @@
 /* 树树工作台 Service Worker · 离线缓存 */
-const CACHE = 'shushu-workspace-v19';
-const BUST = '?v=19';
+const CACHE = 'shushu-workspace-v20';
+const BUST = '?v=20';
 const ASSETS = [
   './',
   './index.html' + BUST,
