@@ -35,15 +35,6 @@
 
       ${App.quoteHTML(date)}
 
-      <div class="card install-card" id="installCard" style="margin-top:16px">
-        <div class="install-ico">📲</div>
-        <div class="install-body">
-          <div class="install-title">安装成桌面 App</div>
-          <div class="tiny muted" id="installTip">全屏无地址栏，像真正 App 一样点开即用 · 三个设备都能装</div>
-        </div>
-        <button class="btn primary sm" id="installGo">一键安装</button>
-      </div>
-
       <div class="grid grid-4" style="margin-top:16px">
         ${statCard('📝', `${done}/${todos.length}`, '', '今日待办', done === todos.length && todos.length ? '全部完成 🎉' : '点开清单去看看', 'todo')}
         ${statCard('🕒', d.englishMin || 0, '分钟', '今日英语', '30 分钟学习 + 30 复习', 'english')}
@@ -83,22 +74,6 @@
         `).join('')}</ul>${todos.length > 8 ? `<div class="tiny muted" style="margin-top:8px">还有 ${todos.length - 8} 项，去「今日待办」查看全部 →</div>` : ''}` : `<div class="empty">清单空空，把碎片化的事情记进来吧 ✨</div>`}
       </div>
     `;
-
-    // 安装成桌面 App：点击触发浏览器原生安装
-    const installCard = document.getElementById('installCard');
-    const installGo = document.getElementById('installGo');
-    const installTip = document.getElementById('installTip');
-    // 已在独立 App 模式打开时，隐藏安装卡片
-    const isStandalone = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
-    if (isStandalone || navigator.standalone) {
-      if (installCard) installCard.style.display = 'none';
-    }
-    if (installGo) installGo.onclick = () => App.installApp();
-    App.updateInstallUI = () => {
-      if (!installGo || !installTip) return;
-      if (App.canInstall()) { installGo.textContent = '一键安装'; installGo.disabled = false; }
-      else { installGo.textContent = '去安装'; installGo.disabled = false; }
-    };
 
     // 四宫格点击跳转到对应功能
     document.querySelectorAll('#view-home .stat-clickable[data-go]').forEach(c => {
