@@ -7,7 +7,7 @@
   let lesson = null;
   let answers = {};
   let submitted = false;
-  let timerHandle = null, timerStart = 0, accumMs = 0;
+  let timerHandle = null, timerStart = 0, accumMs = 0, lastPersist = 0;
   let flashIdx = 0, flashAnswered = false, reviewPool = [], reviewCorrect = 0;
   let wordQuery = '';
   let test = null;
@@ -28,22 +28,34 @@
   function en(text) { return Dictionary.clickableHTML(text); }
 
   /* ---------- 真实计时（无上限） ---------- */
+  function paintTimer(host) {
+    const el = host && host.querySelector('#studyTimer');
+    if (!el) return;
+    const totalSec = Math.round((Store.english().studyLog[Store.todayISO()] || 0)) + Math.floor(accumMs / 1000);
+    el.textContent = `${String(Math.floor(totalSec / 60)).padStart(2, '0')}:${String(totalSec % 60).padStart(2, '0')}`;
+  }
   function persistElapsed() {
     if (accumMs <= 0) return;
     Store.addStudySeconds(Math.round(accumMs / 1000));
     accumMs = 0;
+    timerStart = Date.now(); // 落盘后重置起点，避免重复累计
   }
   function startTimer(host) {
     clearInterval(timerHandle);
+    // 若之前已有累计，先落盘，避免重复渲染时丢时间
+    if (accumMs > 0) persistElapsed();
     timerStart = Date.now(); accumMs = 0;
+    paintTimer(host); // 进入即显示已累计时间，不必等第一个 tick
     timerHandle = setInterval(() => {
       const el = host.querySelector('#studyTimer');
-      if (!el || tab !== 'today') { persistElapsed(); clearInterval(timerHandle); return; }
-      const totalSec = Math.round((Store.english().studyLog[Store.todayISO()] || 0)) + Math.floor(accumMs / 1000);
-      el.textContent = `${String(Math.floor(totalSec / 60)).padStart(2, '0')}:${String(totalSec % 60).padStart(2, '0')}`;
+      if (!el || tab !== 'today') { persistElapsed(); clearInterval(timerHandle); timerHandle = null; return; }
+      accumMs = Date.now() - timerStart; // ★修复：用起点累计真实经过时间
+      paintTimer(host);
+      // 每 30 秒自动落盘一次，防止中途关闭页面丢失计时
+      if (accumMs >= 30000) persistElapsed();
     }, 1000);
   }
-  function stopTimer() { persistElapsed(); clearInterval(timerHandle); }
+  function stopTimer() { clearInterval(timerHandle); timerHandle = null; persistElapsed(); }
 
   /* ---------- 生成课程（题目全部选择题） ---------- */
   function buildLesson(n) {
@@ -610,9 +622,20 @@
     else if (tab === 'tests') renderTests(host);
   };
 
-  // 离开英语板块时确保计时落盘
+  // 切后台落盘、回前台自动续计（仅停留在今日学习页时）
   const _origGo = null;
-  document.addEventListener('visibilitychange', () => { if (document.hidden && tab === 'today') stopTimer(); });
+  document.addEventListener('visibilitychange', () => {
+    if (tab !== 'today') return;
+    if (document.hidden) {
+      stopTimer(); // 切走：落盘，避免丢时间
+    } else {
+      // 回来：若计时器已停，自动续上
+      if (!timerHandle) {
+        const host = document.querySelector('#engBody');
+        if (host && host.querySelector('#studyTimer')) startTimer(host);
+      }
+    }
+  });
 
   global.English = mod;
   (global.__MODULES__ = global.__MODULES__ || {})['english'] = mod;

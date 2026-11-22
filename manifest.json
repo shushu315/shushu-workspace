@@ -2,7 +2,7 @@
   "name": "树树工作台",
   "short_name": "树树工作台",
   "description": "树树的个人效率工作台 · 待办 / 日程 / 健康 / 英语 / 树洞",
-  "start_url": "./index.html?v=20",
+  "start_url": "./index.html?v=21",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
