@@ -178,8 +178,20 @@
         return { ok: true, pulled: true };
       }
 
-      // 【关键保护】本地是空壳但云端有数据 → 一律拉取云端，绝不覆盖
-      // 覆盖场景：新设备首次登录 / localTs 因启动渲染被刷新，都必须以云端为准
+      // ===== v15 合并策略：空壳永远不能覆盖有数据的一方 =====
+      // 只要一端有真实数据、另一端是空壳，就以「有数据」的一端为准，与时间戳无关。
+      // 时间戳只在「两端都有真实数据」时才作为裁决依据。
+
+      // 场景1 用户手动强制下载：云端覆盖本地（明确的用户意图）
+      if (opts.preferRemote) {
+        Store.importJSON(remote);
+        meta.dirty = false; meta.lastPullAt = Date.now(); saveMeta();
+        notify('online', '已下载云端数据');
+        if (typeof App !== 'undefined' && App.refresh) App.refresh();
+        return { ok: true, pulled: true };
+      }
+
+      // 场景2 本地空壳、云端有真实数据 → 拉取云端
       if (!localHasData && remoteHasData) {
         Store.importJSON(remote);
         meta.dirty = false; meta.lastPullAt = Date.now(); saveMeta();
@@ -188,26 +200,29 @@
         return { ok: true, pulled: true };
       }
 
-      // 本地有真实数据且确实比云端新 → 才推送（避免空壳覆盖）
-      if (localHasData && localTs > remoteTs) {
+      // 场景3 本地有真实数据、云端是空壳 → 上传本地（关键修复：不再用空云端覆盖本地）
+      if (localHasData && !remoteHasData) {
         notify('syncing', '正在上传本地变更');
         await doPush();
         notify('online', '已同步');
         return { ok: true, pushed: true };
       }
-      // 本地无真实数据但云端也无真实数据、只是本地时间新 → 不推送，保持云端
-      if (!localHasData && !remoteHasData) {
-        meta.dirty = false; meta.lastPullAt = Date.now(); saveMeta();
-        notify('online', '已是最新');
-        return { ok: true };
-      }
-      if (remoteTs > localTs) {
+
+      // 场景4 两端都有真实数据 → 时间戳新的一方胜
+      if (localHasData && remoteHasData) {
+        if (localTs > remoteTs) {
+          await doPush();
+          notify('online', '已同步');
+          return { ok: true, pushed: true };
+        }
         Store.importJSON(remote);
         meta.dirty = false; meta.lastPullAt = Date.now(); saveMeta();
         notify('online', '已拉取最新');
         if (typeof App !== 'undefined' && App.refresh) App.refresh();
         return { ok: true, pulled: true };
       }
+
+      // 场景5 两端都是空壳 → 无需操作
       meta.dirty = false; meta.lastPullAt = Date.now(); saveMeta();
       notify('online', '已是最新');
       return { ok: true };
@@ -221,11 +236,11 @@
     opts = opts || {};
     await ensureToken();
     const data = Store.load();
-    // 最终兜底：本地是空壳时绝不自动推送，防止覆盖云端真实数据
-    // 手动强制上传（opts.allowEmpty）时放行
-    if (!opts.allowEmpty && !hasRealData(data)) {
-      notify('online', '本地无数据，跳过上传');
-      return;
+    // 铁律：本地是空壳时绝不推送，任何情况都不允许空壳覆盖云端真实数据。
+    // 这是造成 11-22 数据事故的根源，永久封死。
+    if (!hasRealData(data)) {
+      notify('online', '本地无数据，已阻止上传以保护云端');
+      return false;
     }
     data.__updatedAt = Date.now();
     const payload = { user_id: auth.userId, data: data, updated_at: new Date().toISOString() };
@@ -245,7 +260,11 @@
     syncing = true;
     if (!silent) notify('syncing', '上传中');
     try {
-      await doPush(opts);
+      const pushed = await doPush(opts);
+      if (pushed === false) {
+        notify('error', '本地暂无数据，未上传（云端数据受保护）');
+        return { ok: false, reason: '本地无数据' };
+      }
       notify('online', '已同步 ☁️');
       return { ok: true };
     } catch (e) {
