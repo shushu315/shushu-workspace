@@ -207,7 +207,7 @@
         const todos = Object.values(vd).reduce((s, d) => s + ((d && d.todo) ? d.todo.length : 0), 0);
         return `<div class="card" style="box-shadow:none;margin-top:12px">
           <div class="card-title"><span class="dot" style="background:#F0C24B"></span>🗄️ 数据保险箱</div>
-          <p class="tiny muted">系统自动留存了一份历史数据快照（${cnt} 天记录 · ${todos} 条待办）。若数据意外丢失，可在此一键找回。</p>
+          <p class="tiny muted">每次编辑都会自动留存最新快照（${cnt} 天记录 · ${todos} 条待办）。若数据意外丢失，可在此一键找回并同步云端。</p>
           <button class="btn ghost sm" id="restoreVaultBtn" style="margin-top:8px">从保险箱找回数据</button>
         </div>`;
       }).call(this)}
@@ -327,6 +327,33 @@
     }
   }
 
+  /** 开机自检：本地若为空壳、但保险箱/云端有真实数据，自动提示找回，防事故后无痛丢数据 */
+  function checkDataRescue() {
+    try {
+      const empty = !Store.hasContent(Store.load());
+      const v = Store.vault && Store.vault();
+      const vaultOK = v && Store.hasContent(v);
+      if (empty && vaultOK) {
+        setTimeout(() => {
+          App.modal(`
+            <h3>🗄️ 发现可找回的数据</h3>
+            <p class="tiny muted">检测到本机当前没有记录，但保险箱里保存着之前的数据（${Object.keys(v.days || {}).length} 天）。要一键找回吗？</p>
+            <div class="row wrap" style="margin-top:14px;justify-content:flex-end">
+              <button class="btn ghost" id="rescueLater">暂时不要</button>
+              <button class="btn primary" id="rescueNow">一键找回</button>
+            </div>`);
+            document.getElementById('rescueLater').onclick = () => App.closeModal();
+            document.getElementById('rescueNow').onclick = async () => {
+              const ok = (typeof Sync !== 'undefined' && Sync.rescueVault) ? await Sync.rescueVault() : Store.restoreVault();
+              App.closeModal();
+              if (ok) { App.toast('数据已找回并同步 🌿'); App.refresh(); }
+              else App.toast('找回失败');
+            };
+          }, 1000);
+        }
+    } catch (e) {}
+  }
+
   function init() {
     Object.assign(MODULES, global.__MODULES__ || {});
     initKeyboardFix();
@@ -359,7 +386,7 @@
     // PWA —— 应用启动时先彻底清理旧版缓存/SW，再注册带版本号的新 SW
     // 这样即使设备上残留旧 Service Worker，也能强制加载最新功能
     if ('serviceWorker' in navigator) {
-      const APP_VER = '17';
+      const APP_VER = '18';
       const bootSW = () => {
         // 清理所有旧的 Cache Storage（保留 v9）
         if (window.caches && caches.keys) {
@@ -429,6 +456,8 @@
     if (global.WordCard && WordCard.init) WordCard.init();
     // 智能总结：请求通知权限 + 定时检查（周六/月末 21:00 推送）
     if (global.Summary && Summary.init) Summary.init();
+    // 数据救援自检：空壳但有保险箱快照时自动提示找回
+    checkDataRescue();
   }
 
   document.addEventListener('DOMContentLoaded', init);

@@ -1,10 +1,18 @@
-/* 数据层：localStorage 持久化，按日期存储，自动保留 2 年 */
+/* 数据层：localStorage 持久化，按日期存储，自动保留 2 年
+ * v18 安全加固：
+ *  - save(touch=false)：读取/结构补全只持久化，不刷新时间戳、不触发同步
+ *    （新设备打开 app 不再获得"假的最新时间戳"，空壳无法在时间战里胜出）
+ *  - 保险箱升级为「最后一份有真实内容的数据快照」，每次真实编辑都自动留存
+ *    （任何形式的静默清空/覆盖，都能从保险箱找回）
+ *  - 只有用户主动"清空数据"才清除保险箱，区分"事故"与"主动意愿"
+ */
 (function (global) {
   const KEY = 'shushu_workspace_data_v1';
-  const VAULT_KEY = 'shushu_workspace_vault_v1'; // 保险箱：永远保留最后一份"有内容"的数据快照，防同步事故
+  const VAULT_KEY = 'shushu_workspace_vault_v1'; // 保险箱：最后一份"有真实内容"的数据快照
   const KEEP_DAYS = 730; // 2 年
 
-  // 判断一份数据是否含真实用户内容（与 sync.js 的 hasRealData 同口径，独立实现避免依赖）
+  // 判断是否含真实用户内容（与 sync.js 的 hasRealData 同口径，独立实现避免依赖）
+  // 注意：绝不能用会随时间变化的默认值（如经期默认日期）作为"有数据"的证据 —— 那是 v17 事故的元凶之一
   function hasContent(d) {
     if (!d) return false;
     const days = d.days || {};
@@ -17,8 +25,9 @@
           (day.supplements && day.supplements.length) || day.englishMin ||
           (day.foods && day.foods.length)) return true;
     }
+    // 排除自动生成的周测/月测，只认用户自己加的计划
     const sched = d.schedule || {};
-    for (const k of Object.keys(sched)) { if ((sched[k] || []).length) return true; }
+    for (const k of Object.keys(sched)) { if ((sched[k] || []).some(p => p.source !== 'exam')) return true; }
     const eng = d.english || {};
     if ((eng.completed && eng.completed.length) || (eng.quizResults && eng.quizResults.length) ||
         (eng.wordBook && eng.wordBook.length) || eng.currentDay > 1) return true;
@@ -38,29 +47,27 @@
       createdAt: Date.now(),
       profile: {
         name: '树树',
-        // 首次使用时默认设为 16 天前，可在健康板块修改
         lastPeriodStart: todayISO(-16),
         cycleLength: 28,
         periodLength: 5,
-        // 身体数据（用于基础代谢计算）
         body: { height: '', weight: '', age: '', arm: '', hip: '', waist: '', thigh: '' }
       },
-      days: {},        // days['YYYY-MM-DD'] = { todo:[], plan:[], exerciseCheck, resistance, aerobic, water, sleep, supplements:[], englishMin, diary:{} }
-      schedule: {},    // schedule['YYYY-MM-DD'] = [ {id,text,scope,color,done} ]
+      days: {},
+      schedule: {},
       english: {
         currentDay: 1,
         completed: [],
         quizResults: [],
-        wordBook: [],       // 累积单词本（课程词 + 点词卡加入的词），按 added 日期累积，不覆盖
+        wordBook: [],
         grammarNotes: [],
         reviews: [],
-        tests: [],          // 历史试卷成绩
-        papers: [],         // 试卷夹：存档每套完整试卷（题目+选项+答案+解析）
-        notes: [],          // 每日学习资料库：每课的知识点沉淀
-        studyLog: {}        // { 'YYYY-MM-DD': 累计学习秒数 } 真实计时，无上限
+        tests: [],
+        papers: [],
+        notes: [],
+        studyLog: {}
       },
-      summaries: [],        // 周/月总结存档
-      notifications: [],    // 总结推送记录
+      summaries: [],
+      notifications: [],
       settings: { lastCleanup: todayISO() }
     };
   }
@@ -83,7 +90,6 @@
     if (typeof cache.profile !== 'object') cache.profile = d.profile;
     if (!cache.profile.body) cache.profile.body = d.profile.body;
     if (typeof cache.english !== 'object') cache.english = d.english;
-    // 英语新字段兜底（老数据升级）
     ['papers', 'notes', 'wordBook', 'grammarNotes', 'reviews', 'tests', 'completed', 'quizResults'].forEach(k => {
       if (!Array.isArray(cache.english[k])) cache.english[k] = [];
     });
@@ -92,16 +98,23 @@
     if (!Array.isArray(cache.summaries)) cache.summaries = [];
     if (!Array.isArray(cache.notifications)) cache.notifications = [];
     prune();
-    save();
+    save(false); // 读取不属于数据变更：不刷新时间戳、不触发同步
     return cache;
   }
 
-  function save() {
+  /**
+   * touch=true（默认）：真实数据变更 → 刷新 __updatedAt + 更新保险箱 + 标记待同步
+   * touch=false：读取/结构补全/接收云端数据 → 仅持久化，不做上述动作
+   */
+  function save(touch) {
     if (!cache) return;
-    cache.__updatedAt = Date.now();
+    if (touch !== false) {
+      cache.__updatedAt = Date.now();
+      // 保险箱：每次真实编辑都留存最新有内容快照，任何清空/覆盖都能找回
+      try { if (hasContent(cache)) localStorage.setItem(VAULT_KEY, JSON.stringify(cache)); } catch (e) {}
+    }
     try { localStorage.setItem(KEY, JSON.stringify(cache)); } catch (e) { /* 超额忽略 */ }
-    // 通知同步引擎标记待同步（引擎内部会防抖推送，且 pull/导入时会抑制）
-    if (global.Sync && !global.__SYNC_SUPPRESS__ && global.Sync.isLoggedIn && global.Sync.isLoggedIn()) {
+    if (touch !== false && global.Sync && !global.__SYNC_SUPPRESS__ && global.Sync.isLoggedIn && global.Sync.isLoggedIn()) {
       global.Sync.markDirty();
     }
   }
@@ -123,7 +136,7 @@
         resistance: { min: '', items: '' }, aerobic: { min: '', items: '' },
         water: 0, sleep: '', supplements: [], englishMin: 0, diary: null, foods: []
       };
-      save();
+      save(false); // 仅创建空结构，不算数据变更
     }
     if (!Array.isArray(d.days[date].foods)) d.days[date].foods = [];
     return d.days[date];
@@ -138,7 +151,7 @@
 
   function schedule(date) {
     const d = load();
-    if (!d.schedule[date]) { d.schedule[date] = []; save(); }
+    if (!d.schedule[date]) { d.schedule[date] = []; save(false); }
     return d.schedule[date];
   }
 
@@ -151,12 +164,10 @@
   function setProfile(patch) { Object.assign(load().profile, patch); save(); }
   function english() { return load().english; }
   function saveEnglish() { save(); }
-  /** 累计真实英语学习秒数（无上限），并同步到当天 englishMin（向上取整到分钟） */
   function addStudySeconds(sec) {
     const d = load();
     const day = todayISO();
     d.english.studyLog[day] = (d.english.studyLog[day] || 0) + sec;
-    // 首页看板用的分钟数由真实秒数换算，保留精确值到 studyLog，day.englishMin 同步取整
     const dayData = d.days[day] || (day(day, true));
     dayData.englishMin = Math.round(d.english.studyLog[day] / 60);
     save();
@@ -166,32 +177,19 @@
   function exportJSON() { return JSON.stringify(load(), null, 2); }
   function importJSON(text) {
     const parsed = typeof text === 'string' ? JSON.parse(text) : text;
-    // 【保险箱】覆盖前：若当前数据有真实内容，且即将被"空壳"覆盖，则永久留存一份。
-    // 这样即便同步出意外把本地清空，也能从保险箱一键找回。
+    // 保险箱：若当前有真实内容、即将被空壳覆盖，永久留存当前快照
     try {
       if (hasContent(cache) && !hasContent(parsed)) {
-        const prev = localStorage.getItem(VAULT_KEY);
-        // 只保留内容更"多"的那份，避免旧快照反复覆盖更好的快照
-        const shouldSave = !prev || vaultScore(parsed) < vaultScore(JSON.parse(prev));
-        if (shouldSave) localStorage.setItem(VAULT_KEY, JSON.stringify(cache));
+        localStorage.setItem(VAULT_KEY, JSON.stringify(cache));
       }
     } catch (e) {}
     cache = parsed;
-    // 导入/云同步覆盖属于"接收"，不应立即回推，抑制一次
+    // 接收云端数据属于"接收"，不制造本地新时间戳、不回推
     global.__SYNC_SUPPRESS__ = true;
-    save();
+    save(false);
     global.__SYNC_SUPPRESS__ = false;
   }
-  // 粗略估算数据"丰富度"，用于比较保险箱快照
-  function vaultScore(d) {
-    try {
-      const days = d.days || {};
-      let n = Object.keys(days).length;
-      for (const k of days) { const day = days[k] || {}; n += (day.todo || []).length + (day.foods || []).length; }
-      return n;
-    } catch (e) { return 0; }
-  }
-  /** 读取保险箱里的历史快照（供 UI 展示"找回"用） */
+  /** 读取保险箱里的历史快照 */
   function vault() {
     try { const raw = localStorage.getItem(VAULT_KEY); return raw ? JSON.parse(raw) : null; } catch (e) { return null; }
   }
@@ -200,15 +198,15 @@
     const v = vault();
     if (!v) return false;
     cache = v;
-    global.__SYNC_SUPPRESS__ = true;
-    save();
-    global.__SYNC_SUPPRESS__ = false;
+    save(false);
     return true;
   }
   function clearAll() {
     cache = defaultData();
+    // 主动清空：同时清除保险箱，区分"用户意愿"与"同步事故"
+    try { localStorage.removeItem(VAULT_KEY); } catch (e) {}
     save();
   }
 
-  global.Store = { load, save, day, updateDay, schedule, setSchedule, setProfile, english, saveEnglish, addStudySeconds, all, exportJSON, importJSON, clearAll, vault, restoreVault, todayISO, KEEP_DAYS };
+  global.Store = { load, save, day, updateDay, schedule, setSchedule, setProfile, english, saveEnglish, addStudySeconds, all, exportJSON, importJSON, clearAll, vault, restoreVault, hasContent, todayISO, KEEP_DAYS };
 })(window);

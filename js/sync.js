@@ -1,12 +1,16 @@
 /* 同步引擎：Supabase Auth + REST，纯 fetch，无外部依赖
  * 本地 localStorage 仍是主存储（离线可用），Supabase 作为三端同步中枢。
- * 合并策略：按整体 updatedAt 取较新者；本地未同步的变更会排队，恢复后推送。
+ * v18 安全铁律（针对 11-22 二次事故彻底加固）：
+ *   1) "有真实数据"的判定绝不依赖会随时间变化的默认值（已删除经期误判）
+ *   2) 本地时间戳来自真实编辑（load 不再刷新），空壳永远没有"假的最新时间戳"
+ *   3) 空壳绝不覆盖有数据的一方；空壳绝不推送（doPush 铁律）
+ *   4) 云端镜像自愈：拉取时若发现云端数据"缩水"（比本地/保险箱少很多），自动拒绝覆盖并反向保护
  */
 (function (global) {
   const URL = 'https://aehpykzahalcgifzpccz.supabase.co';
   const KEY = 'sb_publishable_vxWsNXAlJqGzpjKTqmETvg_E912WQjA';
-  const AUTH_KEY = 'shushu_auth_v1';        // {accessToken, refreshToken, userId, email, expiresAt}
-  const SYNC_META = 'shushu_sync_meta_v1';  // {lastPushAt, lastPullAt, dirty}
+  const AUTH_KEY = 'shushu_auth_v1';
+  const SYNC_META = 'shushu_sync_meta_v1';
 
   let auth = null;
   try { auth = JSON.parse(localStorage.getItem(AUTH_KEY) || 'null'); } catch (e) { auth = null; }
@@ -17,45 +21,45 @@
   let syncing = false;
   let pushTimer = null;
   let listeners = [];
-  let booting = true; // 启动宽限期：首次 Sync.start() 完成前，抑制自动推送，防止空壳覆盖云端
-  setTimeout(() => { booting = false; }, 3000); // 兜底：3秒后强制解除，尽量不影响实时性
+  let booting = true;
+  setTimeout(() => { booting = false; }, 3000);
 
   const S = {};
   S.URL = URL;
-  S.READY = false; // 表是否已建好（通过首次 pull 判断）
+  S.READY = false;
 
   function saveAuth() { localStorage.setItem(AUTH_KEY, JSON.stringify(auth)); }
   function saveMeta() { localStorage.setItem(SYNC_META, JSON.stringify(meta)); }
   function notify(state, msg) { listeners.forEach(fn => { try { fn(state, msg); } catch (e) {} }); }
   S.onStatus = function (fn) { listeners.push(fn); };
 
-  /** 判断本地是否含真实用户数据（区别于新设备初始化产生的空壳） */
+  /**
+   * 判断"这份数据是否含真实用户内容"—— 直接复用 store.js 的 hasContent 口径。
+   * v18 关键修复：不再使用"经期日期≠今天"这类会随时间变化的判断。
+   * 那种判断会把一个从未记录过任何东西的空壳，在隔天打开时误判为"有数据"，
+   * 进而骗过 doPush 的空壳保护，把空数据推上云端造成三端清空。
+   */
   function hasRealData(d) {
-    if (!d) return false;
-    const days = d.days || {};
-    for (const k of Object.keys(days)) {
-      const day = days[k];
-      if (!day) continue;
-      if ((day.todo && day.todo.length) || day.water || day.sleep || day.exerciseCheck ||
-          (day.diary && typeof day.diary === 'object' && Object.keys(day.diary).length) ||
-          (day.resistance && day.resistance.min) || (day.aerobic && day.aerobic.min) ||
-          (day.supplements && day.supplements.length) || day.englishMin) return true;
-    }
-    const sched = d.schedule || {};
-    for (const k of Object.keys(sched)) {
-      // 排除自动生成的周测/月测，只认用户自己加的计划
-      if ((sched[k] || []).some(p => p.source !== 'exam')) return true;
-    }
-    const eng = d.english || {};
-    if ((eng.completed && eng.completed.length) || (eng.quizResults && eng.quizResults.length) ||
-        (eng.wordBook && eng.wordBook.length) || eng.currentDay > 1) return true;
-    if (d.profile && d.profile.lastPeriodStart && d.profile.lastPeriodStart !== todayOffsetDefault()) return true;
-    return false;
+    return !!(global.Store && Store.hasContent && Store.hasContent(d));
   }
-  function todayOffsetDefault() {
-    const d = new Date(); d.setDate(d.getDate() - 16);
-    const p = n => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+
+  /** 数据"丰富度"评分：用于自愈比对，防止云端缩水覆盖本地 */
+  function richness(d) {
+    try {
+      if (!d) return 0;
+      let n = 0;
+      const days = d.days || {};
+      for (const k of Object.keys(days)) {
+        const day = days[k] || {};
+        n += (day.todo || []).length + (day.foods || []).length + (day.supplements || []).length;
+        if (day.water) n += 0.2; if (day.sleep) n += 0.2; if (day.englishMin) n += 0.2;
+      }
+      const sched = d.schedule || {};
+      for (const k of Object.keys(sched)) n += (sched[k] || []).filter(p => p.source !== 'exam').length;
+      const eng = d.english || {};
+      n += (eng.completed || []).length + (eng.quizResults || []).length + (eng.wordBook || []).length;
+      return n;
+    } catch (e) { return 0; }
   }
 
   function headers(withAuth = true) {
@@ -75,15 +79,13 @@
     return body;
   }
 
-  /** 判断登录态 */
   S.isLoggedIn = function () { return !!(auth && auth.accessToken); };
   S.email = function () { return auth ? auth.email : ''; };
 
-  /** 确保 access_token 有效（过期则刷新） */
   async function ensureToken() {
     if (!auth || !auth.accessToken) throw new Error('未登录');
     const now = Date.now();
-    if (auth.expiresAt && now < auth.expiresAt - 60000) return; // 还有 1 分钟以上
+    if (auth.expiresAt && now < auth.expiresAt - 60000) return;
     if (!auth.refreshToken) throw new Error('登录已过期，请重新登录');
     const data = await fetchJSON(URL + '/auth/v1/token?grant_type=refresh_token', {
       method: 'POST', headers: headers(false),
@@ -95,7 +97,6 @@
     saveAuth();
   }
 
-  /** 邮箱密码登录 */
   S.login = async function (email, password) {
     const data = await fetchJSON(URL + '/auth/v1/token?grant_type=password', {
       method: 'POST', headers: headers(false),
@@ -111,13 +112,11 @@
     return auth;
   };
 
-  /** 注册新用户 */
   S.signup = async function (email, password) {
     const data = await fetchJSON(URL + '/auth/v1/signup', {
       method: 'POST', headers: headers(false),
       body: JSON.stringify({ email: email.trim(), password })
     });
-    // 若开启了邮箱验证，data.user 存在但 session 为空
     if (data.access_token) {
       auth = {
         accessToken: data.access_token, refreshToken: data.refresh_token,
@@ -135,19 +134,15 @@
     notify('offline', '已退出登录');
   };
 
-  /** 标记本地有变更，防抖推送 */
   S.markDirty = function () {
     if (!S.isLoggedIn()) return;
-    // 启动初始化阶段不排队推送，避免空壳覆盖云端
-    if (booting) { return; }
+    if (booting) return;
     meta.dirty = true; saveMeta();
     notify('pending', '待同步');
     clearTimeout(pushTimer);
-    // 实时同步：编辑后 700ms 自动上传，无需手动操作
     pushTimer = setTimeout(() => S.push(true), 700);
   };
 
-  /** 从云端拉取数据 */
   S.pull = async function (opts) {
     opts = opts || {};
     if (!S.isLoggedIn()) return { ok: false, reason: '未登录' };
@@ -164,11 +159,12 @@
       }
       S.READY = true;
       const remote = rows[0].data;
-      const remoteTs = remote && remote.__updatedAt ? remote.__updatedAt : 0;
       const local = Store.load();
       const localTs = local.__updatedAt || 0;
       const localHasData = hasRealData(local);
       const remoteHasData = hasRealData(remote);
+      const localRich = richness(local);
+      const remoteRich = richness(remote);
 
       // 强制下载：云端覆盖本地（用户手动确认后）
       if (opts.preferRemote) {
@@ -179,20 +175,9 @@
         return { ok: true, pulled: true };
       }
 
-      // ===== v15 合并策略：空壳永远不能覆盖有数据的一方 =====
-      // 只要一端有真实数据、另一端是空壳，就以「有数据」的一端为准，与时间戳无关。
-      // 时间戳只在「两端都有真实数据」时才作为裁决依据。
+      // ===== v18 合并铁律：空壳永远不能覆盖有数据的一方，时间戳只作同级裁决 =====
 
-      // 场景1 用户手动强制下载：云端覆盖本地（明确的用户意图）
-      if (opts.preferRemote) {
-        Store.importJSON(remote);
-        meta.dirty = false; meta.lastPullAt = Date.now(); saveMeta();
-        notify('online', '已下载云端数据');
-        if (typeof App !== 'undefined' && App.refresh) App.refresh();
-        return { ok: true, pulled: true };
-      }
-
-      // 场景2 本地空壳、云端有真实数据 → 拉取云端
+      // 场景1 本地空壳、云端有真实数据 → 拉取云端（新设备/iPad 首次登录走这里）
       if (!localHasData && remoteHasData) {
         Store.importJSON(remote);
         meta.dirty = false; meta.lastPullAt = Date.now(); saveMeta();
@@ -201,7 +186,7 @@
         return { ok: true, pulled: true };
       }
 
-      // 场景3 本地有真实数据、云端是空壳 → 上传本地（关键修复：不再用空云端覆盖本地）
+      // 场景2 本地有真实数据、云端是空壳 → 上传本地（保护本地，绝不空壳覆盖）
       if (localHasData && !remoteHasData) {
         notify('syncing', '正在上传本地变更');
         await doPush();
@@ -209,8 +194,14 @@
         return { ok: true, pushed: true };
       }
 
-      // 场景4 两端都有真实数据 → 时间戳新的一方胜
+      // 场景3 两端都有真实数据 → 时间戳新的一方胜；但云端明显缩水时拒绝覆盖并反向保护
       if (localHasData && remoteHasData) {
+        // 自愈：云端丰富度远低于本地（疑似被空壳/残缺数据污染），拒绝拉取，反向上传本地
+        if (remoteRich + 3 < localRich) {
+          await doPush();
+          notify('online', '已保护本地数据并修复云端');
+          return { ok: true, pushed: true, protected: true };
+        }
         if (localTs > remoteTs) {
           await doPush();
           notify('online', '已同步');
@@ -223,7 +214,7 @@
         return { ok: true, pulled: true };
       }
 
-      // 场景5 两端都是空壳 → 无需操作
+      // 场景4 两端都是空壳 → 无需操作
       meta.dirty = false; meta.lastPullAt = Date.now(); saveMeta();
       notify('online', '已是最新');
       return { ok: true };
@@ -238,14 +229,12 @@
     await ensureToken();
     const data = Store.load();
     // 铁律：本地是空壳时绝不推送，任何情况都不允许空壳覆盖云端真实数据。
-    // 这是造成 11-22 数据事故的根源，永久封死。
     if (!hasRealData(data)) {
       notify('online', '本地无数据，已阻止上传以保护云端');
       return false;
     }
     data.__updatedAt = Date.now();
     const payload = { user_id: auth.userId, data: data, updated_at: new Date().toISOString() };
-    // upsert：冲突时按主键更新
     await fetchJSON(URL + '/rest/v1/workspace_data?on_conflict=user_id', {
       method: 'POST',
       headers: Object.assign(headers(), { 'Prefer': 'resolution=merge-duplicates,return=minimal' }),
@@ -254,7 +243,6 @@
     meta.dirty = false; meta.lastPushAt = Date.now(); saveMeta();
   }
 
-  /** 推送本地数据到云端 */
   S.push = async function (silent, opts) {
     if (!S.isLoggedIn()) return { ok: false, reason: '未登录' };
     if (syncing) return { ok: false, reason: '同步中' };
@@ -278,18 +266,24 @@
     } finally { syncing = false; }
   };
 
-  /** 登录后的初始化：先拉云端，若本地有数据且云端为空则上传 */
+  /** 登录后的初始化：先拉云端；本地有真实数据且云端空则上传 */
   S.start = async function () {
     if (!S.isLoggedIn()) { notify('offline', '未登录'); return; }
     const r = await S.pull({ force: true });
     if (r.ok && r.empty) {
-      // 云端为空：仅当本地有真实数据时才作为初始版本上传
       if (hasRealData(Store.load())) await S.push(true);
     }
-    booting = false; // 首次同步完成，解除推送抑制
+    booting = false;
   };
 
-  // 页面切到后台/关闭前推送，回到前台拉取
+  /** 从保险箱找回：先恢复到本地，再主动推送云端（供 UI 调用） */
+  S.rescueVault = async function () {
+    if (!Store.restoreVault()) return { ok: false, reason: '保险箱为空' };
+    if (typeof App !== 'undefined' && App.refresh) App.refresh();
+    if (S.isLoggedIn()) await S.push(true);
+    return { ok: true };
+  };
+
   document.addEventListener('visibilitychange', () => {
     if (!S.isLoggedIn()) return;
     if (document.hidden) {
@@ -298,17 +292,14 @@
       S.pull();
     }
   });
-  // 实时同步：前台每 12 秒自动拉取一次云端，任何设备的改动都会自动同步过来
   setInterval(() => {
     if (S.isLoggedIn() && !document.hidden && !syncing) S.pull();
   }, 12000);
   window.addEventListener('beforeunload', () => {
     if (S.isLoggedIn() && meta.dirty) {
-      // 尽力推送（不保证完成）
       try { S.push(true); } catch (e) {}
     }
   });
-  // 网络恢复自动同步
   window.addEventListener('online', () => { if (S.isLoggedIn()) S.pull(); });
 
   global.Sync = S;

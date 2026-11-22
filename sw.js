@@ -1,6 +1,6 @@
 /* 树树工作台 Service Worker · 离线缓存 */
-const CACHE = 'shushu-workspace-v17';
-const BUST = '?v=17';
+const CACHE = 'shushu-workspace-v18';
+const BUST = '?v=18';
 const ASSETS = [
   './',
   './index.html' + BUST,
@@ -10,8 +10,11 @@ const ASSETS = [
   './js/store.js' + BUST,
   './js/sync.js' + BUST,
   './js/data.js' + BUST,
+  './js/summary.js' + BUST,
   './js/health-content.js' + BUST,
   './js/english-content.js' + BUST,
+  './js/dict.js' + BUST,
+  './js/wordcard.js' + BUST,
   './js/audio-map.js' + BUST,
   './icons/avatar-tree.png',
   './js/app.js' + BUST,
